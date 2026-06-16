@@ -1,0 +1,2 @@
+->installed cmake and completed FTXUI setup 
+->explored FTXUI examples and components from git repo
