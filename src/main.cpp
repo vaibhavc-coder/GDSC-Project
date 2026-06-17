@@ -1,75 +1,118 @@
-#include <memory>  
-#include <string> 
-#include <vector> 
+#include <ftxui/component/component.hpp>
+#include <ftxui/component/screen_interactive.hpp>
+#include <ftxui/dom/elements.hpp>
+#include <ftxui/component/event.hpp> 
 
-#include "ftxui/component/app.hpp"         
-#include "ftxui/component/captured_mouse.hpp"
-#include "ftxui/component/component.hpp"
-#include "ftxui/component/component_base.hpp"  
-#include "ftxui/dom/elements.hpp"  
+#include <mutex>
+#include <deque>
+#include <string>
+#include <vector> 
 
 using namespace ftxui;
 
+struct LayerMetrics {
+    std::string name;
+    float latency_ms;
+    std::vector<int> tensor_shape;
+    float sparsity_rate;
+};
+
+struct AppState {
+    std::mutex mtx;
+    std::deque<LayerMetrics> layer_buffer; 
+    int max_buffer_size = 100;
+    
+    int active_tab = 0;  
+    int selected_layer = 0; 
+};
+
 int main() {
-  std::vector<std::string> tab_values{
-      "1. MODEL TOPOLOGY (Focus Active)",
-      "2. LIVE PACKET STREAM",
-      "3. ATTENTION MATRIX VISUALIZER (HEAD 0)",
-      "4. RUNTIME METRICS INSPECTOR",
-      "5. NUMERICAL ANOMALY LEDGER",
-  };
-  int tab_selected = 0;
-  auto tab_toggle = Toggle(&tab_values, &tab_selected);
+    auto screen = ScreenInteractive::Fullscreen();
+    AppState state;
 
-  std::vector<std::string> tab_1_entries{
-      "To be filled",
-  };
-  int tab_1_selected = 0;
+    std::vector<std::string> tab_entries = {
+        "Overview", "Attention Matrix", "Anomalies"
+    };
+    auto tab_selection = Toggle(&tab_entries, &state.active_tab);
 
-  std::vector<std::string> tab_2_entries{
-      "To be filled",
-  };
-  int tab_2_selected = 0;
+    std::vector<std::string> layer_names = {
+        "Embedding", "Block 0", "Block 1", "Block 2", "LM Head"
+    };
+    
+    auto base_menu = Menu(&layer_names, &state.selected_layer);
 
-  std::vector<std::string> tab_3_entries{
-      "To be filled",
-  };
-  int tab_3_selected = 0;
+    auto vim_layer_menu = CatchEvent(base_menu, [&](Event event) {
+        if (event == Event::Character('j')) {
+            if (state.selected_layer < (int)layer_names.size() - 1) state.selected_layer++;
+            return true; 
+        }
+        if (event == Event::Character('k')) {
+            if (state.selected_layer > 0) state.selected_layer--;
+            return true; 
+        }
+        if (event == Event::Tab) {
+            state.active_tab = (state.active_tab + 1) % tab_entries.size();
+            return true;
+        }
+        return false; 
+    });
 
-  std::vector<std::string> tab_4_entries{
-      "To be filled",
-  };
-  int tab_4_selected = 0;
+    auto overview_render = Renderer([&] {
+        return vbox({
+            text("Latency: 12.4ms") | bold,
+            text("Shape: [1, 32, 4096]"),
+            text("Sparsity: 15%") | color(Color::Green),
+        });
+    });
 
-  std::vector<std::string> tab_5_entries{
-      "To be filled",
-  };
-  int tab_5_selected = 0;
+    auto attention_render = Renderer([&] {
+        return text("Attention Matrix Visualization goes here...");
+    });
 
-  auto tab_container = Container::Tab(
-      {
-          Radiobox(&tab_1_entries, &tab_1_selected),
-          Radiobox(&tab_2_entries, &tab_2_selected),
-          Radiobox(&tab_3_entries, &tab_3_selected),
-          Radiobox(&tab_4_entries, &tab_4_selected),
-          Radiobox(&tab_5_entries, &tab_5_selected),
-      },
-      &tab_selected);
+    auto anomalies_render = Renderer([&] {
+        return text("No clipping risks detected.");
+    });
 
-  auto container = Container::Vertical({
-      tab_toggle,
-      tab_container,
-  });
+    auto tab_content = Container::Tab({
+        overview_render,
+        attention_render,
+        anomalies_render
+    }, &state.active_tab);
 
-  auto renderer = Renderer(container, [&] {
-    return vbox({
-               tab_toggle->Render(),
-               separator(),
-               tab_container->Render(),
-           }) |
-           border;
-  });
+    auto main_container = Container::Horizontal({
+        vim_layer_menu,
+        tab_content
+    });
 
-  auto screen = App::TerminalOutput();
-  screen.Loop(renderer);
+    auto layout = Container::Vertical({
+        tab_selection,
+        main_container
+    });
+
+    auto final_render = Renderer(layout, [&] {
+        return vbox({
+            text(" Transformer Telemetry Dashboard ") | bold | center | color(Color::Red),
+            text("By Vaibhav and Om Kiran") | align_right,
+            hbox({
+                text("[Q]") | color(Color::RedLight),
+                text(": Quit App"),
+                separator(),
+                text("[Tab]") | color(Color::RedLight),
+                text(": Tab movement"),
+                separator(),
+                text("[j/k]") | color(Color::RedLight),
+                text(": layer movement"),
+            }) | center,
+            separator(),
+            tab_selection->Render() | center,
+            separator(),
+            hbox({
+                window(text(" Layers ") | color(Color::CyanLight), vim_layer_menu->Render()) | size(WIDTH, EQUAL, 25),
+                window(text(" Details ") | color(Color::CyanLight), tab_content->Render()) | flex,
+            }) | flex
+        });
+    });
+
+    screen.Loop(final_render);
+    return 0;
 }
