@@ -1,2 +1,4 @@
 ->installed cmake and completed FTXUI setup 
 ->explored FTXUI examples and components from git repo
+->built a basic terminal layout for the project
+->started learning how transformers work (attention,tensors,mlp,embedding etc.)
