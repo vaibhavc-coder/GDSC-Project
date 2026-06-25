@@ -20,7 +20,6 @@
 #include "ftxui/component/component.hpp"
 #include "ftxui/component/screen_interactive.hpp"
 #include "ftxui/component/event.hpp"
-
 struct SafeLayerMetrics {
     int id;
     std::string name;
@@ -33,7 +32,6 @@ struct SafeLayerMetrics {
     bool is_anomaly;
     std::string compute_device;
 };
-
 template <typename T, size_t Capacity>
 class LockFreeRingBuffer {
 private:
@@ -69,80 +67,91 @@ public:
 };
 class TelemetryEngine {
 private:
-    LockFreeRingBuffer<SafeLayerMetrics, 15> ring_buffer; // Packet stream history
     std::chrono::high_resolution_clock::time_point start_time;
     std::vector<uint8_t> host_buffer;
-
     std::unique_ptr<std::thread> ui_thread;
-    std::atomic<bool> ui_running{false};
     ftxui::ScreenInteractive screen = ftxui::ScreenInteractive::Fullscreen();
-    int packet_counter = 100;
-
+    std::vector<SafeLayerMetrics> capture_history;
+    std::vector<std::string> sequence_entries;
+    std::vector<std::string> anomaly_entries;
 public:
     TelemetryEngine() {
-        ui_running = true;
         ui_thread = std::make_unique<std::thread>(&TelemetryEngine::run_ui_loop, this);
     }
-
     ~TelemetryEngine() {
-        ui_running = false;
         screen.ExitLoopClosure()();
         if (ui_thread && ui_thread->joinable()) {
             ui_thread->join();
         }
     }
-
     void start_timer() {
         start_time = std::chrono::high_resolution_clock::now();
     }
-
     std::string get_timestamp() {
         auto now = std::chrono::system_clock::now();
-        auto time = std::chrono::system_clock::to_time_t(now);
         auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(now.time_since_epoch()) % 1000;
+        auto time = std::chrono::system_clock::to_time_t(now);
         std::stringstream ss;
         ss << std::put_time(std::localtime(&time), "%H:%M:%S") << "." << std::setfill('0') << std::setw(3) << ms.count();
         return ss.str();
     }
-
     void record_metrics(struct ggml_tensor* t) {
         auto end_time = std::chrono::high_resolution_clock::now();
         double latency = std::chrono::duration<double, std::milli>(end_time - start_time).count();
 
         size_t nbytes = ggml_nbytes(t);
-        if (host_buffer.size() < nbytes) {
-            host_buffer.resize(nbytes);
-        }
-
+        if (host_buffer.size() < nbytes) host_buffer.resize(nbytes);
         ggml_backend_tensor_get(t, host_buffer.data(), 0, nbytes);
 
         int zero_count = 0;
         float max_val = 0.0f;
         int64_t numel = ggml_nelements(t);
+        
         std::vector<int64_t> shape;
         for (int i = 0; i < ggml_n_dims(t); i++) shape.push_back(t->ne[i]);
+
+        std::vector<float> sample(64, 0.0f);
 
         if (t->type == GGML_TYPE_F32) {
             const float* data = reinterpret_cast<const float*>(host_buffer.data());
             for (int64_t i = 0; i < numel; ++i) {
                 if (data[i] == 0.0f) zero_count++;
-                if (data[i] > max_val) max_val = data[i];
+                if (std::abs(data[i]) > max_val) max_val = std::abs(data[i]);
+                if (i < 64) sample[i] = std::abs(data[i]);
+            }
+        } 
+        else if (t->type == GGML_TYPE_F16) {
+            const ggml_fp16_t* data = reinterpret_cast<const ggml_fp16_t*>(host_buffer.data());
+            for (int64_t i = 0; i < numel; ++i) {
+                float val = ggml_fp16_to_fp32(data[i]);
+                if (val == 0.0f) zero_count++;
+                if (std::abs(val) > max_val) max_val = std::abs(val);
+                if (i < 64) sample[i] = std::abs(val);
             }
         }
 
-        SafeLayerMetrics metrics;
-        metrics.id = packet_counter++;
-        metrics.name = t->name ? t->name : "unknown_layer";
-        metrics.timestamp = get_timestamp();
-        metrics.dtype = ggml_type_name(t->type);
-        metrics.shape = shape;
-        metrics.latency_ms = latency;
-        metrics.sparsity = numel > 0 ? (float)zero_count / numel : 0.0f;
-        metrics.max_act = max_val;
-        metrics.is_anomaly = (max_val > 6.0f);
-        metrics.compute_device = "CUDA [GPU 0]";
-        if (metrics.name.find("norm") != std::string::npos) metrics.compute_device = "CPU (Fallback)";
+        SafeLayerMetrics metrics = {
+            t->name ? t->name : "unknown_layer",
+            get_timestamp(),
+            ggml_type_name(t->type),
+            shape, latency,
+            numel > 0 ? (float)zero_count / numel : 0.0f,
+            max_val,
+            (max_val > 10.0f || std::isnan(max_val)),
+            sample
+        };
+        screen.Post([this, metrics]() {
+            if (this->capture_history.size() >= MAX_HISTORY_SIZE) {
+                this->capture_history.erase(this->capture_history.begin());
+                this->sequence_entries.erase(this->sequence_entries.begin());
+            }
+            this->capture_history.push_back(metrics);
+            std::stringstream entry;
+            entry << "[" << std::fixed << std::setprecision(2) << metrics.latency_ms << "ms] " << metrics.name;
+            this->sequence_entries.push_back(entry.str());
 
-        ring_buffer.push(metrics);
-        screen.PostEvent(ftxui::Event::Custom);
+            if (metrics.is_anomaly) {
+                this->anomaly_entries.push_back(metrics.timestamp + " | " + metrics.name + " (Max: " + std::to_string(metrics.max_act) + ")");
+            }
+        });
     }
