@@ -1,5 +1,6 @@
-cmake_minimum_required(VERSION 3.11)
+cmake_minimum_required(VERSION 3.14) # llama.cpp usually requires 3.14+
 project(ai_telemetry_tool)
+
 include(FetchContent)
 FetchContent_Declare(ftxui
   GIT_REPOSITORY https://github.com/ArthurSonzogni/ftxui
@@ -7,9 +8,12 @@ FetchContent_Declare(ftxui
 )
 FetchContent_MakeAvailable(ftxui)
 
-add_executable(dashboard main.cpp)
+set(LLAMA_BUILD_TESTS OFF CACHE BOOL "Disable llama.cpp tests" FORCE)
+set(LLAMA_BUILD_EXAMPLES ON CACHE BOOL "Build llama.cpp examples (like llama-cli)" FORCE)
 
-target_link_libraries(dashboard PRIVATE 
+add_subdirectory(submodules/llama.cpp)
+
+target_link_libraries(llama PUBLIC 
     ftxui::screen
     ftxui::dom
     ftxui::component
