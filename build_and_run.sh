@@ -4,9 +4,9 @@ echo "=== 1. Initializing Submodules ==="
 git submodule update --init --recursive
 
 echo "=== 2. Injecting Telemetry Hook ==="
-cp my_code/llama-telemetry.h submodules/llama.cpp/src/
-if ! grep -q "TelemetryEngine" submodules/llama.cpp/src/llama-context.cpp; then
-    patch submodules/llama.cpp/src/llama-context.cpp < my_code/llama-context.patch
+cp my_code/llama-telemetry.h external/llama.cpp/src/
+if ! grep -q "TelemetryEngine" external/llama.cpp/src/llama-context.cpp; then
+    patch external/llama.cpp/src/llama-context.cpp < my_code/llama-context.patch
 fi
 
 echo "=== 3. Compiling from Root ==="
