@@ -13,6 +13,8 @@ set(LLAMA_BUILD_EXAMPLES ON CACHE BOOL "Build llama.cpp examples (like llama-cli
 
 add_subdirectory(external/llama.cpp)
 
+target_include_directories(llama PRIVATE ${CMAKE_SOURCE_DIR}/my_code)
+
 target_link_libraries(llama PUBLIC 
     ftxui::screen
     ftxui::dom
