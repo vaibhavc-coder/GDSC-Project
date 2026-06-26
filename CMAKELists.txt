@@ -18,3 +18,4 @@ target_link_libraries(llama PUBLIC
     ftxui::dom
     ftxui::component
 )
+target_include_directories(llama PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
