@@ -189,7 +189,7 @@ private:
         auto dashboard = Renderer(main_container, [&] {
             auto list_win = window(text(" 1. PIPELINE SEQUENCE [j/k to scroll] ") | bold | color(Color::Cyan), 
                 sequence_with_vim->Render() | vscroll_indicator | frame
-            ) | size(WIDTH, PERCENT, 35);
+            ) | size(WIDTH, EQUAL, 35);
 
             if (capture_history.empty()) {
                 return hbox({list_win, center(text("Waiting for forward pass...")) | flex});
