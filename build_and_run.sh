@@ -16,4 +16,4 @@ cmake --build build --config Release
 echo "=== 4. Compilation Complete! ==="
 echo "The executable is now located in your root build folder."
 echo "To test the telemetry dashboard, run:"
-echo "./build/submodules/llama.cpp/bin/llama-cli -m <path_to_your_model> -p 'Hello' -n 50"
+echo "./build/external/llama.cpp/bin/llama-cli -m <path_to_your_model> -p 'Hello' -n 50"
