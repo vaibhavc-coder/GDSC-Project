@@ -35,5 +35,14 @@ else
     echo "[*] Launching Telemetry Dashboard with model: $MODEL_PATH"
     echo "===================================================="
     
-    ./build/ai_telemetry_tool "$MODEL_PATH"
+    if [ -f "./build/Release/ai_telemetry_tool.exe" ]; then
+        ./build/Release/ai_telemetry_tool.exe "$MODEL_PATH"
+    elif [ -f "./build/ai_telemetry_tool.exe" ]; then
+        ./build/ai_telemetry_tool.exe "$MODEL_PATH"
+    elif [ -f "./build/ai_telemetry_tool" ]; then
+        ./build/ai_telemetry_tool "$MODEL_PATH"
+    else
+        echo "[E] Error: Could not find the compiled binary artifact inside the build directory."
+        exit 1
+    fi
 fi
