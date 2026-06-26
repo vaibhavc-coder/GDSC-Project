@@ -20,7 +20,6 @@
 #include "ftxui/component/screen_interactive.hpp"
 #include "ftxui/component/event.hpp"
 struct SafeLayerMetrics {
-    int id;
     std::string name;
     std::string timestamp;
     std::string dtype;
@@ -29,7 +28,7 @@ struct SafeLayerMetrics {
     float sparsity;
     float max_act;
     bool is_anomaly;
-    std::string compute_device;
+    std::vector<float> tensor_sample;
 };
 template <typename T, size_t Capacity>
 class LockFreeRingBuffer {
@@ -66,6 +65,7 @@ public:
 };
 class TelemetryEngine {
 private:
+    static constexpr size_t MAX_HISTORY_SIZE = 256;
     std::chrono::high_resolution_clock::time_point start_time;
     std::vector<uint8_t> host_buffer;
     std::unique_ptr<std::thread> ui_thread;
@@ -129,16 +129,16 @@ public:
             }
         }
 
-        SafeLayerMetrics metrics = {
-            t->name ? t->name : "unknown_layer",
-            get_timestamp(),
-            ggml_type_name(t->type),
-            shape, latency,
-            numel > 0 ? (float)zero_count / numel : 0.0f,
-            max_val,
-            (max_val > 10.0f || std::isnan(max_val)),
-            sample
-        };
+        SafeLayerMetrics metrics;
+        metrics.name = t->name ? t->name : "unknown_layer";
+        metrics.timestamp = get_timestamp();
+        metrics.dtype = ggml_type_name(t->type);
+        metrics.shape = shape;
+        metrics.latency_ms = latency;
+        metrics.sparsity = numel > 0 ? (float)zero_count / numel : 0.0f;
+        metrics.max_act = max_val;
+        metrics.is_anomaly = (max_val > 10.0f || std::isnan(max_val));
+        metrics.tensor_sample = sample;
         screen.Post([this, metrics]() {
             if (this->capture_history.size() >= MAX_HISTORY_SIZE) {
                 this->capture_history.erase(this->capture_history.begin());
