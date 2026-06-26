@@ -3,4 +3,4 @@
 	url = https://github.com/ArthurSonzogni/FTXUI.git
 [submodule "external/llama.cpp"]
 	path = external/llama.cpp
-	url = https://github.com/ggerganov/llama.cpp.git
+	url = https://github.com/ggml-org/llama.cpp
