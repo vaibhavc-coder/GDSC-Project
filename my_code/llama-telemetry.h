@@ -16,7 +16,6 @@
 #include "ftxui/dom/elements.hpp"
 #include "ftxui/screen/screen.hpp"
 #include "ftxui/screen/color.hpp"
-#include "ftxui/screen/interactive.hpp"
 #include "ftxui/component/component.hpp"
 #include "ftxui/component/screen_interactive.hpp"
 #include "ftxui/component/event.hpp"
