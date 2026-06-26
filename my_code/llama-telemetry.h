@@ -155,3 +155,104 @@ public:
             }
         });
     }
+
+private:
+    ftxui::Element render_heatmap_block(float val, float max_val) {
+        using namespace ftxui;
+        if (max_val <= 0.0001f) return text("░░") | color(Color::GrayDark);
+        float ratio = val / max_val;
+        if (ratio > 0.8f) return text("██") | color(Color::Red);
+        if (ratio > 0.5f) return text("▓▓") | color(Color::Orange1);
+        if (ratio > 0.2f) return text("▒▒") | color(Color::Yellow);
+        return text("░░") | color(Color::GrayDark);
+    }
+
+    void run_ui_loop() {
+        using namespace ftxui;
+
+        int selected_layer = 0;
+        int selected_anomaly = 0;
+
+        auto sequence_menu = Menu(&sequence_entries, &selected_layer);
+        auto anomaly_menu = Menu(&anomaly_entries, &selected_anomaly);
+
+        auto sequence_with_vim = CatchEvent(sequence_menu, [&](Event e) {
+            if (e == Event::Character('j')) return sequence_menu->OnEvent(Event::ArrowDown);
+            if (e == Event::Character('k')) return sequence_menu->OnEvent(Event::ArrowUp);
+            return false;
+        });
+
+        auto main_container = Container::Horizontal({
+            sequence_with_vim,
+            anomaly_menu
+        });
+
+        auto dashboard = Renderer(main_container, [&] {
+            auto list_win = window(text(" 1. PIPELINE SEQUENCE [j/k to scroll] ") | bold | color(Color::Cyan), 
+                sequence_with_vim->Render() | vscroll_indicator | frame
+            ) | size(WIDTH, PERCENT, 35);
+
+            if (capture_history.empty()) {
+                return hbox({list_win, center(text("Waiting for forward pass...")) | flex});
+            }
+
+            int idx = std::max(0, std::min(selected_layer, (int)capture_history.size() - 1));
+            const auto& active = capture_history[idx];
+
+            std::string shape_str = "[";
+            for (size_t i = 0; i < active.shape.size(); i++) {
+                shape_str += std::to_string(active.shape[i]) + (i < active.shape.size()-1 ? ", " : "]");
+            }
+            if (active.shape.empty()) shape_str = "[]";
+
+            auto metrics_pane = window(text(" 2. RUNTIME METRICS ") | bold | color(Color::Cyan), vbox({
+                text("Target    : " + active.name) | color(Color::White),
+                text("Timestamp : " + active.timestamp) | color(Color::GrayLight),
+                separator(),
+                hbox({text("Shape     : "), text(shape_str) | color(Color::Green), text("  (" + active.dtype + ")")}),
+                hbox({text("Latency   : "), text(std::to_string(active.latency_ms) + " ms") | color(active.latency_ms > 50.0 ? Color::Red : Color::Green)}),
+                hbox({text("Sparsity  : "), gauge(active.sparsity) | color(Color::Blue) | size(WIDTH, EQUAL, 20), text(" " + std::to_string((int)(active.sparsity * 100)) + "%")}),
+                text("Max Activ : " + std::to_string(active.max_act))
+            }));
+
+            Elements matrix_rows;
+            for (int r = 0; r < 8; r++) {
+                Elements col;
+                for (int c = 0; c < 8; c++) {
+                    int s_idx = r * 8 + c;
+                    col.push_back(render_heatmap_block(active.tensor_sample[s_idx], active.max_act));
+                }
+                matrix_rows.push_back(hbox(col));
+            }
+            auto matrix_pane = window(text(" 3. 8x8 TENSOR HEATMAP ") | bold | color(Color::Cyan), 
+                hbox({ vbox(matrix_rows) | flex, separator(), text("██ High\n▓▓ Mid\n▒▒ Low\n░░ Zero") | color(Color::GrayLight) })
+            );
+
+            auto anomaly_win = window(text(" 4. ANOMALY LEDGER ") | bold | color(Color::Cyan),
+                anomaly_entries.empty() ? text("No anomalies detected.") | color(Color::GrayDark) 
+                                        : anomaly_menu->Render() | vscroll_indicator | frame
+            );
+
+            auto right_pane = vbox({
+                metrics_pane,
+                matrix_pane,
+                anomaly_win | flex
+            });
+
+            return vbox({
+                text(" [Tab]: Switch Panels  |  [j/k]: Navigate  |  [q]: Quit ") | inverted,
+                hbox({list_win, right_pane | flex})
+            });
+        });
+
+        auto global_interceptor = CatchEvent(dashboard, [&](Event event) {
+            if (event == Event::Character('q') || event == Event::Character('Q')) {
+                screen.ExitLoopClosure()();
+                return true;
+            }
+            return false;
+        });
+
+        screen.Loop(global_interceptor);
+    }
+};
