@@ -256,3 +256,16 @@ private:
         screen.Loop(global_interceptor);
     }
 };
+
+static bool ggml_eval_callback(struct ggml_tensor* t, bool ask, void* user_data) {
+    auto* engine = static_cast<TelemetryEngine*>(user_data);
+    if (t->op == GGML_OP_RESHAPE || t->op == GGML_OP_VIEW || t->op == GGML_OP_PERMUTE || t->op == GGML_OP_NONE) {
+        return true; 
+    }
+    if (ask) {
+        engine->start_timer();
+    } else {
+        engine->record_metrics(t);
+    }
+    return true;
+}
