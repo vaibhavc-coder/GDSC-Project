@@ -11,6 +11,9 @@
 #include <iomanip>
 #include <sstream>
 #include <algorithm>
+#include <cmath>
+#include <cstring>
+
 #include "ggml.h"
 #include "ggml-backend.h"
 #include "ftxui/dom/elements.hpp"
@@ -19,6 +22,7 @@
 #include "ftxui/component/component.hpp"
 #include "ftxui/component/screen_interactive.hpp"
 #include "ftxui/component/event.hpp"
+
 struct SafeLayerMetrics {
     std::string name;
     std::string timestamp;
@@ -30,39 +34,7 @@ struct SafeLayerMetrics {
     bool is_anomaly;
     std::vector<float> tensor_sample;
 };
-template <typename T, size_t Capacity>
-class LockFreeRingBuffer {
-private:
-    T buffer[Capacity];
-    size_t head = 0;
-    size_t tail = 0;
-    size_t size = 0;
-    std::mutex mtx;
 
-public:
-    void push(const T& item) {
-        std::lock_guard<std::mutex> lock(mtx);
-        buffer[head] = item;
-        head = (head + 1) % Capacity;
-        if (size < Capacity) {
-            size++;
-        } else {
-            tail = (tail + 1) % Capacity;
-        }
-    }
-
-    std::vector<T> get_all_snapshot() {
-        std::lock_guard<std::mutex> lock(mtx);
-        std::vector<T> items;
-        items.reserve(size);
-        size_t current = tail;
-        for (size_t i = 0; i < size; ++i) {
-            items.push_back(buffer[current]);
-            current = (current + 1) % Capacity;
-        }
-        return items;
-    }
-};
 class TelemetryEngine {
 private:
     static constexpr size_t MAX_HISTORY_SIZE = 256;
@@ -73,19 +45,23 @@ private:
     std::vector<SafeLayerMetrics> capture_history;
     std::vector<std::string> sequence_entries;
     std::vector<std::string> anomaly_entries;
+
 public:
     TelemetryEngine() {
         ui_thread = std::make_unique<std::thread>(&TelemetryEngine::run_ui_loop, this);
     }
+
     ~TelemetryEngine() {
         screen.ExitLoopClosure()();
         if (ui_thread && ui_thread->joinable()) {
             ui_thread->join();
         }
     }
+
     void start_timer() {
         start_time = std::chrono::high_resolution_clock::now();
     }
+
     std::string get_timestamp() {
         auto now = std::chrono::system_clock::now();
         auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(now.time_since_epoch()) % 1000;
@@ -94,62 +70,74 @@ public:
         ss << std::put_time(std::localtime(&time), "%H:%M:%S") << "." << std::setfill('0') << std::setw(3) << ms.count();
         return ss.str();
     }
+
     void record_metrics(struct ggml_tensor* t) {
         auto end_time = std::chrono::high_resolution_clock::now();
         double latency = std::chrono::duration<double, std::milli>(end_time - start_time).count();
 
-        size_t nbytes = ggml_nbytes(t);
-        if (host_buffer.size() < nbytes) host_buffer.resize(nbytes);
-        ggml_backend_tensor_get(t, host_buffer.data(), 0, nbytes);
-
-        int zero_count = 0;
-        float max_val = 0.0f;
-        int64_t numel = ggml_nelements(t);
+        std::string layer_name = t->name ? t->name : "unknown_layer";
         
         std::vector<int64_t> shape;
         for (int i = 0; i < ggml_n_dims(t); i++) shape.push_back(t->ne[i]);
+        int64_t numel = ggml_nelements(t);
 
+        int zero_count = 0;
+        float max_val = 0.0f;
         std::vector<float> sample(64, 0.0f);
 
-        if (t->type == GGML_TYPE_F32) {
-            const float* data = reinterpret_cast<const float*>(host_buffer.data());
-            for (int64_t i = 0; i < numel; ++i) {
-                if (data[i] == 0.0f) zero_count++;
-                if (std::abs(data[i]) > max_val) max_val = std::abs(data[i]);
-                if (i < 64) sample[i] = std::abs(data[i]);
-            }
-        } 
-        else if (t->type == GGML_TYPE_F16) {
-            const ggml_fp16_t* data = reinterpret_cast<const ggml_fp16_t*>(host_buffer.data());
-            for (int64_t i = 0; i < numel; ++i) {
-                float val = ggml_fp16_to_fp32(data[i]);
-                if (val == 0.0f) zero_count++;
-                if (std::abs(val) > max_val) max_val = std::abs(val);
-                if (i < 64) sample[i] = std::abs(val);
+        bool is_heavy_layer = (layer_name.find("attn") != std::string::npos || 
+                               layer_name.find("ffn") != std::string::npos ||
+                               layer_name.find("wq") != std::string::npos);
+
+        if (is_heavy_layer && numel > 0) {
+            size_t nbytes = ggml_nbytes(t);
+            if (host_buffer.size() < nbytes) host_buffer.resize(nbytes);
+            
+            // Sync from Backend (GPU/CPU) to Host RAM
+            ggml_backend_tensor_get(t, host_buffer.data(), 0, nbytes);
+
+            if (t->type == GGML_TYPE_F32) {
+                const float* data = reinterpret_cast<const float*>(host_buffer.data());
+                for (int64_t i = 0; i < numel; ++i) {
+                    if (data[i] == 0.0f) zero_count++;
+                    if (std::abs(data[i]) > max_val) max_val = std::abs(data[i]);
+                    if (i < 64) sample[i] = std::abs(data[i]);
+                }
+            } 
+            else if (t->type == GGML_TYPE_F16) {
+                const ggml_fp16_t* data = reinterpret_cast<const ggml_fp16_t*>(host_buffer.data());
+                for (int64_t i = 0; i < numel; ++i) {
+                    float val = ggml_fp16_to_fp32(data[i]);
+                    if (val == 0.0f) zero_count++;
+                    if (std::abs(val) > max_val) max_val = std::abs(val);
+                    if (i < 64) sample[i] = std::abs(val);
+                }
             }
         }
 
         SafeLayerMetrics metrics;
-        metrics.name = t->name ? t->name : "unknown_layer";
+        metrics.name = layer_name;
         metrics.timestamp = get_timestamp();
         metrics.dtype = ggml_type_name(t->type);
         metrics.shape = shape;
         metrics.latency_ms = latency;
         metrics.sparsity = numel > 0 ? (float)zero_count / numel : 0.0f;
         metrics.max_act = max_val;
-        metrics.is_anomaly = (max_val > 10.0f || std::isnan(max_val));
+        metrics.is_anomaly = (max_val > 15.0f || std::isnan(max_val)); 
         metrics.tensor_sample = sample;
+
         screen.Post([this, metrics]() {
             if (this->capture_history.size() >= MAX_HISTORY_SIZE) {
                 this->capture_history.erase(this->capture_history.begin());
                 this->sequence_entries.erase(this->sequence_entries.begin());
             }
             this->capture_history.push_back(metrics);
+            
             std::stringstream entry;
             entry << "[" << std::fixed << std::setprecision(2) << metrics.latency_ms << "ms] " << metrics.name;
             this->sequence_entries.push_back(entry.str());
 
-            if (metrics.is_anomaly) {
+            if (metrics.is_anomaly && metrics.max_act > 0.0f) {
                 this->anomaly_entries.push_back(metrics.timestamp + " | " + metrics.name + " (Max: " + std::to_string(metrics.max_act) + ")");
             }
         });
@@ -192,11 +180,12 @@ private:
             ) | size(WIDTH, EQUAL, 35);
 
             if (capture_history.empty()) {
-                return hbox({list_win, center(text("Waiting for forward pass...")) | flex});
+                return hbox({list_win, center(text("Waiting for token generation...")) | flex});
             }
 
-            int idx = std::max(0, std::min(selected_layer, (int)capture_history.size() - 1));
-            const auto& active = capture_history[idx];
+            // Bug fix: prevent out-of-bounds when vector is just populating
+            int safe_idx = std::max(0, std::min(selected_layer, (int)capture_history.size() - 1));
+            const auto& active = capture_history[safe_idx];
 
             std::string shape_str = "[";
             for (size_t i = 0; i < active.shape.size(); i++) {
@@ -209,7 +198,7 @@ private:
                 text("Timestamp : " + active.timestamp) | color(Color::GrayLight),
                 separator(),
                 hbox({text("Shape     : "), text(shape_str) | color(Color::Green), text("  (" + active.dtype + ")")}),
-                hbox({text("Latency   : "), text(std::to_string(active.latency_ms) + " ms") | color(active.latency_ms > 50.0 ? Color::Red : Color::Green)}),
+                hbox({text("Latency   : "), text(std::to_string(active.latency_ms) + " ms") | color(active.latency_ms > 10.0 ? Color::Red : Color::Green)}),
                 hbox({text("Sparsity  : "), gauge(active.sparsity) | color(Color::Blue) | size(WIDTH, EQUAL, 20), text(" " + std::to_string((int)(active.sparsity * 100)) + "%")}),
                 text("Max Activ : " + std::to_string(active.max_act))
             }));
@@ -223,12 +212,13 @@ private:
                 }
                 matrix_rows.push_back(hbox(col));
             }
-            auto matrix_pane = window(text(" 3. 8x8 TENSOR HEATMAP ") | bold | color(Color::Cyan), 
+            
+            auto matrix_pane = window(text(" 3. 8x8 TENSOR HEATMAP (Attn/FFN) ") | bold | color(Color::Cyan), 
                 hbox({ vbox(matrix_rows) | flex, separator(), text("██ High\n▓▓ Mid\n▒▒ Low\n░░ Zero") | color(Color::GrayLight) })
             );
 
-            auto anomaly_win = window(text(" 4. ANOMALY LEDGER ") | bold | color(Color::Cyan),
-                anomaly_entries.empty() ? text("No anomalies detected.") | color(Color::GrayDark) 
+            auto anomaly_win = window(text(" 4. ANOMALY LEDGER (>15.0f) ") | bold | color(Color::Cyan),
+                anomaly_entries.empty() ? text("No clipping risks detected.") | color(Color::GrayDark) 
                                         : anomaly_menu->Render() | vscroll_indicator | frame
             );
 
@@ -256,15 +246,18 @@ private:
     }
 };
 
-static bool ggml_eval_callback(struct ggml_tensor* t, bool ask, void* user_data) {
+inline bool ggml_eval_callback(struct ggml_tensor* t, bool ask, void* user_data) {
     auto* engine = static_cast<TelemetryEngine*>(user_data);
-    if (t->op == GGML_OP_RESHAPE || t->op == GGML_OP_VIEW || t->op == GGML_OP_PERMUTE || t->op == GGML_OP_NONE) {
+    
+    if (t->op == GGML_OP_RESHAPE || t->op == GGML_OP_VIEW || 
+        t->op == GGML_OP_PERMUTE || t->op == GGML_OP_NONE) {
         return true; 
     }
+    
     if (ask) {
         engine->start_timer();
     } else {
         engine->record_metrics(t);
     }
-    return true;
+    return true; 
 }
