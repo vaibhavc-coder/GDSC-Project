@@ -1,21 +1,39 @@
 #!/bin/bash
+
 set -e
 
-echo "=== 1. Initializing Submodules ==="
-git submodule update --init --recursive
+echo "===================================================="
+echo " Starting Non-Invasive AI Telemetry Platform Build "
+echo "===================================================="
+if [ -d "build" ]; then
+    echo "[*] Cleaning existing build directory..."
+    rm -rf build
+fi
 
-echo "=== 2. Injecting Telemetry Hook ==="
-cp my_code/llama-telemetry.h external/llama.cpp/src/
-cp my_code/llama-context.cpp external/llama.cpp/src/
+echo "[*] Configuring CMake build system (Release mode)..."
+cmake -B build -DCMAKE_BUILD_TYPE=Release
 
-echo "=== 3. Compiling from Root ==="
-cmake -B build -DCMAKE_BUILD_TYPE=Release -DLLAMA_BUILD_EXAMPLES=ON
-cmake --build build --config Release -j 8
+echo "[*] Compiling ai_telemetry_tool..."
+cmake --build build --config Release --target ai_telemetry_tool
 
-echo "=== 4. Compilation Complete! ==="
-echo "Locate llama-cli with:"
-echo "  find build -iname 'llama-cli*' -type f"
-echo ""
-echo "Then run it, e.g.:"
-echo "  ./build/bin/llama-cli -m <path_to_your_model> -p 'Hello' -n 50"
-echo "(exact path depends on your CMake generator - see the find command above if this path is wrong)"
+echo "===================================================="
+echo "                Build Successful!                   "
+echo "===================================================="
+
+if [ -z "$1" ]; then
+    echo "[!] Warning: No model file provided."
+    echo "    Usage: ./build_and_run.sh <path_to_model.gguf>"
+    echo "    The executable is available at: ./build/ai_telemetry_tool"
+    exit 0
+else
+    MODEL_PATH="$1"
+    if [ ! -f "$MODEL_PATH" ]; then
+        echo "[E] Error: Model file not found at '$MODEL_PATH'"
+        exit 1
+    fi
+    
+    echo "[*] Launching Telemetry Dashboard with model: $MODEL_PATH"
+    echo "===================================================="
+    
+    ./build/ai_telemetry_tool "$MODEL_PATH"
+fi
