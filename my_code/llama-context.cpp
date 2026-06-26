@@ -1,5 +1,6 @@
 #include "llama-context.h"
 #include "llama-telemetry.h"
+static TelemetryEngine telemetry;
 #include "ggml.h"
 #include "llama-arch.h"
 #include "llama-graph.h"
@@ -2437,6 +2438,8 @@ ggml_status llama_context::graph_compute(
     for (const auto & set_n_threads_fn : set_n_threads_fns) {
         set_n_threads_fn.second(set_n_threads_fn.first, n_threads);
     }
+
+    ggml_backend_sched_set_eval_callback(sched.get(), ggml_eval_callback, &telemetry);
 
     auto status = ggml_backend_sched_graph_compute_async(sched.get(), gf);
     if (status != GGML_STATUS_SUCCESS) {
