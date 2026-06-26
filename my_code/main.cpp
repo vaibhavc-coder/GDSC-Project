@@ -11,7 +11,6 @@ int main(int argc, char ** argv) {
         std::cerr << "Usage: " << argv[0] << " <path_to_model.gguf>\n";
         return 1;
     }
-
     TelemetryEngine engine;
 
     llama_backend_init();
@@ -24,6 +23,8 @@ int main(int argc, char ** argv) {
         return 1;
     }
 
+    const llama_vocab * vocab = llama_model_get_vocab(model);
+
     llama_context_params ctx_params = llama_context_default_params();
     ctx_params.cb_eval = ggml_eval_callback; 
     ctx_params.cb_eval_user_data = &engine;
@@ -33,17 +34,18 @@ int main(int argc, char ** argv) {
 
     std::string prompt = "Explain the theory of relativity briefly: ";
     std::vector<llama_token> tokens(prompt.length() + 4);
-    int n_tokens = llama_tokenize(model, prompt.c_str(), prompt.length(), tokens.data(), tokens.size(), true, true);
+    
+    int n_tokens = llama_tokenize(vocab, prompt.c_str(), prompt.length(), tokens.data(), (int32_t)tokens.size(), true, true);
     if (n_tokens < 0) {
         tokens.resize(-n_tokens);
-        n_tokens = llama_tokenize(model, prompt.c_str(), prompt.length(), tokens.data(), tokens.size(), true, true);
+        n_tokens = llama_tokenize(vocab, prompt.c_str(), prompt.length(), tokens.data(), (int32_t)tokens.size(), true, true);
     }
     tokens.resize(n_tokens);
 
     auto sampler = llama_sampler_chain_init(llama_sampler_chain_default_params());
-    llama_sampler_chain_add_greedy(sampler);
+    llama_sampler_chain_add(sampler, llama_sampler_init_greedy());
     
-    llama_batch batch = llama_batch_get_one(tokens.data(), tokens.size());
+    llama_batch batch = llama_batch_get_one(tokens.data(), (int32_t)tokens.size());
 
     int max_tokens_to_generate = 30; 
     
@@ -52,10 +54,13 @@ int main(int argc, char ** argv) {
         if (llama_decode(ctx, batch) != 0) {
             break;
         }
+
         llama_token new_token = llama_sampler_sample(sampler, ctx, -1);
-        if (llama_token_is_eog(model, new_token)) {
+        
+        if (llama_token_is_eog(vocab, new_token)) {
             break; 
         }
+
         batch = llama_batch_get_one(&new_token, 1);
         
         std::this_thread::sleep_for(std::chrono::milliseconds(100)); 
