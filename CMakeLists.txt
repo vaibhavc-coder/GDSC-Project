@@ -13,10 +13,11 @@ set(LLAMA_BUILD_EXAMPLES ON CACHE BOOL "Build llama.cpp examples (like llama-cli
 
 add_subdirectory(external/llama.cpp)
 
-target_include_directories(llama PRIVATE ${CMAKE_SOURCE_DIR}/my_code)
+add_executable(ai_telemetry_tool my_code/main.cpp)
 
-target_link_libraries(llama PUBLIC 
-    ftxui::screen
-    ftxui::dom
+target_link_libraries(ai_telemetry_tool PRIVATE 
+    llama 
+    ftxui::screen 
+    ftxui::dom 
     ftxui::component
 )
