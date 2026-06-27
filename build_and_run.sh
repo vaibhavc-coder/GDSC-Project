@@ -6,7 +6,7 @@ echo "===================================================="
 echo " Starting Non-Invasive AI Telemetry Platform Build "
 echo "===================================================="
 
-cmake -B build -DCMAKE_BUILD_TYPE=Release -DGGML_BACKEND_DL=OFF
+cmake -B build -DCMAKE_BUILD_TYPE=Release -DBUILD_SHARED_LIBS=OFF -DGGML_BACKEND_DL=OFF
 cmake --build build --config Release --target ai_telemetry_tool
 
 echo "===================================================="
@@ -22,7 +22,9 @@ else
         exit 1
     fi
     
-    if [ -f "./build/Release/ai_telemetry_tool.exe" ]; then
+    if [ -f "./build/bin/Release/ai_telemetry_tool.exe" ]; then
+        ./build/bin/Release/ai_telemetry_tool.exe "$MODEL_PATH"
+    elif [ -f "./build/Release/ai_telemetry_tool.exe" ]; then
         ./build/Release/ai_telemetry_tool.exe "$MODEL_PATH"
     elif [ -f "./build/ai_telemetry_tool.exe" ]; then
         ./build/ai_telemetry_tool.exe "$MODEL_PATH"
