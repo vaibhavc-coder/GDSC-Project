@@ -13,7 +13,7 @@ int main(int argc, char ** argv) {
     }
 
     llama_backend_init();
-    ggml_backend_load_all();
+
     std::cout << "Loading model from: " << argv[1] << "\n";
     std::cout << "Please wait... (This may take a few seconds)\n";
 
@@ -24,8 +24,6 @@ int main(int argc, char ** argv) {
         std::cerr << "\n[CRITICAL ERROR] Failed to load model! Check your file path.\n";
         return 1;
     }
-
-    const llama_vocab * vocab = llama_model_get_vocab(model);
 
     TelemetryEngine engine;
 
@@ -39,19 +37,20 @@ int main(int argc, char ** argv) {
     std::string prompt = "Explain the theory of relativity briefly: ";
     std::vector<llama_token> tokens(prompt.length() + 4);
     
-    int n_tokens = llama_tokenize(vocab, prompt.c_str(), prompt.length(), tokens.data(), (int32_t)tokens.size(), true, true);
+    int n_tokens = llama_tokenize(model, prompt.c_str(), prompt.length(), tokens.data(), (int32_t)tokens.size(), true, true);
     if (n_tokens < 0) {
         tokens.resize(-n_tokens);
-        n_tokens = llama_tokenize(vocab, prompt.c_str(), prompt.length(), tokens.data(), (int32_t)tokens.size(), true, true);
+        n_tokens = llama_tokenize(model, prompt.c_str(), prompt.length(), tokens.data(), (int32_t)tokens.size(), true, true);
     }
     tokens.resize(n_tokens);
 
     auto sampler = llama_sampler_chain_init(llama_sampler_chain_default_params());
     llama_sampler_chain_add(sampler, llama_sampler_init_greedy());
     
-    llama_batch batch = llama_batch_get_one(tokens.data(), (int32_t)tokens.size());
+    llama_batch batch = llama_batch_get_one(tokens.data(), (int32_t)tokens.size(), 0, 0);
 
     int max_tokens_to_generate = 30; 
+    int n_past = n_tokens; 
     
     for (int i = 0; i < max_tokens_to_generate; i++) {
         if (llama_decode(ctx, batch) != 0) {
@@ -60,11 +59,11 @@ int main(int argc, char ** argv) {
 
         llama_token new_token = llama_sampler_sample(sampler, ctx, -1);
         
-        if (llama_token_is_eog(vocab, new_token)) {
+        if (llama_token_is_eog(model, new_token)) {
             break; 
         }
-
-        batch = llama_batch_get_one(&new_token, 1);
+        batch = llama_batch_get_one(&new_token, 1, n_past, 0);
+        n_past++;
         
         std::this_thread::sleep_for(std::chrono::milliseconds(100)); 
     }
