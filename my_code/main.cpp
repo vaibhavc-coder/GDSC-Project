@@ -11,19 +11,23 @@ int main(int argc, char ** argv) {
         std::cerr << "Usage: " << argv[0] << " <path_to_model.gguf>\n";
         return 1;
     }
-    TelemetryEngine engine;
 
     llama_backend_init();
+
+    std::cout << "Loading model from: " << argv[1] << "\n";
+    std::cout << "Please wait... (This may take a few seconds)\n";
 
     llama_model_params model_params = llama_model_default_params();
     llama_model * model = llama_load_model_from_file(argv[1], model_params);
 
     if (!model) {
-        std::cerr << "Failed to load model\n";
+        std::cerr << "\n[CRITICAL ERROR] Failed to load model! Check your file path.\n";
         return 1;
     }
 
     const llama_vocab * vocab = llama_model_get_vocab(model);
+
+    TelemetryEngine engine;
 
     llama_context_params ctx_params = llama_context_default_params();
     ctx_params.cb_eval = ggml_eval_callback; 
@@ -50,7 +54,6 @@ int main(int argc, char ** argv) {
     int max_tokens_to_generate = 30; 
     
     for (int i = 0; i < max_tokens_to_generate; i++) {
-        
         if (llama_decode(ctx, batch) != 0) {
             break;
         }
