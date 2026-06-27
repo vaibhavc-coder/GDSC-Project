@@ -39,7 +39,6 @@ class TelemetryEngine {
 private:
     static constexpr size_t MAX_HISTORY_SIZE = 256;
     std::chrono::high_resolution_clock::time_point start_time;
-    std::vector<uint8_t> host_buffer;
     std::unique_ptr<std::thread> ui_thread;
     ftxui::ScreenInteractive screen = ftxui::ScreenInteractive::Fullscreen();
     std::vector<SafeLayerMetrics> capture_history;
@@ -89,15 +88,9 @@ public:
                                layer_name.find("ffn") != std::string::npos ||
                                layer_name.find("wq") != std::string::npos);
 
-        if (is_heavy_layer && numel > 0) {
-            size_t nbytes = ggml_nbytes(t);
-            if (host_buffer.size() < nbytes) host_buffer.resize(nbytes);
-            
-            // Sync from Backend (GPU/CPU) to Host RAM
-            ggml_backend_tensor_get(t, host_buffer.data(), 0, nbytes);
-
+        if (is_heavy_layer && numel > 0 && t->data != nullptr) {
             if (t->type == GGML_TYPE_F32) {
-                const float* data = reinterpret_cast<const float*>(host_buffer.data());
+                const float* data = reinterpret_cast<const float*>(t->data);
                 for (int64_t i = 0; i < numel; ++i) {
                     if (data[i] == 0.0f) zero_count++;
                     if (std::abs(data[i]) > max_val) max_val = std::abs(data[i]);
@@ -105,7 +98,7 @@ public:
                 }
             } 
             else if (t->type == GGML_TYPE_F16) {
-                const ggml_fp16_t* data = reinterpret_cast<const ggml_fp16_t*>(host_buffer.data());
+                const ggml_fp16_t* data = reinterpret_cast<const ggml_fp16_t*>(t->data);
                 for (int64_t i = 0; i < numel; ++i) {
                     float val = ggml_fp16_to_fp32(data[i]);
                     if (val == 0.0f) zero_count++;
@@ -123,7 +116,7 @@ public:
         metrics.latency_ms = latency;
         metrics.sparsity = numel > 0 ? (float)zero_count / numel : 0.0f;
         metrics.max_act = max_val;
-        metrics.is_anomaly = (max_val > 15.0f || std::isnan(max_val)); 
+        metrics.is_anomaly = (max_val > 15.0f || std::isnan(max_val));
         metrics.tensor_sample = sample;
 
         screen.Post([this, metrics]() {
@@ -183,7 +176,6 @@ private:
                 return hbox({list_win, center(text("Waiting for token generation...")) | flex});
             }
 
-            // Bug fix: prevent out-of-bounds when vector is just populating
             int safe_idx = std::max(0, std::min(selected_layer, (int)capture_history.size() - 1));
             const auto& active = capture_history[safe_idx];
 
