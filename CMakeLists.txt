@@ -14,6 +14,7 @@ set(LLAMA_BUILD_EXAMPLES ON CACHE BOOL "Build llama.cpp examples (like llama-cli
 add_subdirectory(external/llama.cpp)
 
 add_executable(ai_telemetry_tool my_code/main.cpp)
+target_link_libraries(ai_telemetry_tool PRIVATE llama ggml ggml-cpu)
 
 target_link_libraries(ai_telemetry_tool PRIVATE 
     llama 
