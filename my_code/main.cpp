@@ -13,7 +13,7 @@ int main(int argc, char ** argv) {
     }
 
     llama_backend_init();
-
+    ggml_backend_load_all();
     std::cout << "Loading model from: " << argv[1] << "\n";
     std::cout << "Please wait... (This may take a few seconds)\n";
 
