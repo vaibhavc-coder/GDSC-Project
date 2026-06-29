@@ -30,9 +30,9 @@ Prerequisites
 Execution
 Simply open your terminal in the root project directory and run the following command:
 
-# Bash
-# ./build_and_run.sh
-# What this script does automatically:
+: Bash
+: ./build_and_run.sh
+What this script does automatically:
 
 Detects if a compatible .gguf model is present.
 
@@ -51,14 +51,14 @@ Tab : Switch between the left panel and the Anomaly Ledger.
 
 q : Quit the program.
 
-## 3. Notes for the Reviewer
+# 3. Notes for the Reviewer
 While building this, I ran into a few interesting architectural issues that I had to work around to get it running smoothly:
 
-# 1. Reverting the llama.cpp Engine
+## 1. Reverting the llama.cpp Engine
 If you look at the Git history, you'll see I locked the llama.cpp library to an older version (Release Tag b3800). The absolute newest version of llama.cpp recently updated how its memory scheduler works, which currently crashes the system if you try to pause the pipeline and read the tensors. Using this stable older tag safely bypasses that bug.
 
-# 2. Background Math Processing
+## 2. Background Math Processing
 Instead of forcing the AI to stop completely while the tool calculates sparsity and finds the max activation values, I moved all that heavy math to a separate background thread (using a Producer-Consumer queue). The AI just hands off a quick copy of the memory and keeps running, which keeps the token generation fast.
 
-# 3. Why Qwen 2.5?
+## 3. Why Qwen 2.5?
 The script downloads a Qwen model by default instead of something newer like Gemma 3. This is because Gemma 3 uses a hybrid State-Space architecture that drops a lot of the standard Attention/FFN layers. Qwen is a pure, classic Transformer, which makes it the perfect model to show off the layer heatmaps for this assignment.
