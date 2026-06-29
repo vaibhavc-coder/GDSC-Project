@@ -6,7 +6,7 @@ MODEL_URL="https://huggingface.co/Qwen/Qwen2.5-1.5B-Instruct-GGUF/resolve/main/q
 DEFAULT_MODEL="qwen2.5-1.5b-instruct-q4_k_m.gguf"
 
 echo "===================================================="
-echo "    Local LLM Instrumentation & Telemetry Platform  "
+echo "   Local LLM Instrumentation & Telemetry Platform   "
 echo "===================================================="
 
 if [ -z "$1" ]; then
@@ -21,7 +21,6 @@ if [ ! -f "$MODEL_PATH" ]; then
         echo "[!] Default model not found in the current directory."
         echo "[*] Bootstrapping: Automatically downloading Qwen 2.5 (1.1 GB) for telemetry testing..."
         echo "[*] (This will only happen once. Please wait...)"
-        # Uses curl to follow redirects (-L) and save with the remote name (-O)
         curl -L -O "$MODEL_URL"
         echo "[*] Download complete!"
     else
@@ -32,14 +31,14 @@ if [ ! -f "$MODEL_PATH" ]; then
 fi
 
 echo "----------------------------------------------------"
-echo "[*] Compiling C++ Telemetry Engine..."
+echo "        [*] Compiling C++ Telemetry Engine..        "
 echo "----------------------------------------------------"
 
 cmake -B build -DCMAKE_BUILD_TYPE=Release
 cmake --build build --config Release --target ai_telemetry_tool
 
 echo "===================================================="
-echo "      Build Successful! Launching TUI Dashboard...  "
+echo "    Build Successful! Launching TUI Dashboard...    "
 echo "===================================================="
 
 if [ -f "./build/bin/Release/ai_telemetry_tool.exe" ]; then
