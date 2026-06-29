@@ -30,8 +30,8 @@ Prerequisites
 Execution
 Simply open your terminal in the root project directory and run the following command:
 
-: Bash
-: ./build_and_run.sh
+##### Bash
+###### ./build_and_run.sh
 What this script does automatically:
 
 Detects if a compatible .gguf model is present.
